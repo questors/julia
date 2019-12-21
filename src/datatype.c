@@ -897,7 +897,7 @@ JL_DLLEXPORT jl_value_t *jl_new_struct(jl_datatype_t *type, ...)
     va_start(args, type);
     jl_value_t *jv = jl_gc_alloc(ptls, jl_datatype_size(type), type);
     for (size_t i = 0; i < nf; i++) {
-        jl_set_nth_field(jv, i, va_arg(args, jl_value_t*));
+        set_nth_field(type, (void*)jv, i, va_arg(args, jl_value_t*));
     }
     va_end(args);
     return jv;
@@ -939,7 +939,7 @@ JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args, 
         jl_value_t *ft = jl_field_type(type, i);
         if (!jl_isa(args[i], ft))
             jl_type_error("new", ft, args[i]);
-        jl_set_nth_field(jv, i, args[i]);
+        set_nth_field(type, (void*)jv, i, args[i]);
     }
     init_struct_tail(type, jv, na);
     JL_GC_POP();
@@ -975,7 +975,7 @@ JL_DLLEXPORT jl_value_t *jl_new_structt(jl_datatype_t *type, jl_value_t *tup)
         fi = jl_get_nth_field(tup, i);
         if (!jl_isa(fi, ft))
             jl_type_error("new", ft, fi);
-        jl_set_nth_field(jv, i, fi);
+        set_nth_field(type, (void*)jv, i, fi);
     }
     JL_GC_POP();
     return jv;
@@ -1074,9 +1074,8 @@ JL_DLLEXPORT jl_value_t *jl_get_nth_field_checked(jl_value_t *v, size_t i)
     return undefref_check((jl_datatype_t*)ty, jl_new_bits(ty, (char*)v + offs));
 }
 
-JL_DLLEXPORT void jl_set_nth_field(jl_value_t *v, size_t i, jl_value_t *rhs) JL_NOTSAFEPOINT
+void set_nth_field(jl_datatype_t *st, void *v, size_t i, jl_value_t *rhs) JL_NOTSAFEPOINT
 {
-    jl_datatype_t *st = (jl_datatype_t*)jl_typeof(v);
     size_t offs = jl_field_offset(st, i);
     if (jl_field_isptr(st, i)) {
         *(jl_value_t**)((char*)v + offs) = rhs;

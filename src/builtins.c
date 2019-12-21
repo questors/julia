@@ -785,11 +785,11 @@ JL_CALLABLE(jl_f_setfield)
         JL_TYPECHK(setfield!, symbol, args[1]);
         idx = jl_field_index(st, (jl_sym_t*)args[1], 1);
     }
-    jl_value_t *ft = jl_field_type(st,idx);
+    jl_value_t *ft = jl_field_type(st, idx);
     if (!jl_isa(args[2], ft)) {
         jl_type_error("setfield!", ft, args[2]);
     }
-    jl_set_nth_field(v, idx, args[2]);
+    set_nth_field(st, (void*)v, idx, args[2]);
     return args[2];
 }
 

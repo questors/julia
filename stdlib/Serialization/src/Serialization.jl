@@ -631,7 +631,7 @@ function serialize_any(s::AbstractSerializer, @nospecialize(x))
         serialize_type(s, t)
         write(s.io, x)
     else
-        if t.mutable && nf > 0
+        if t.mutable
             serialize_cycle(s, x) && return
             serialize_type(s, t, true)
         else
@@ -1282,6 +1282,14 @@ function deserialize_string(s::AbstractSerializer, len::Int)
     return out
 end
 
+#mutable struct SmallArray
+#    eins
+#    zwei
+#    drei
+#    vier
+#    SmallArray() = new()
+#end
+
 # default DataType deserializer
 function deserialize(s::AbstractSerializer, t::DataType)
     nf = length(t.types)
@@ -1289,28 +1297,9 @@ function deserialize(s::AbstractSerializer, t::DataType)
         # bits type
         return read(s.io, t)
     end
-    if nf == 0
-        return ccall(:jl_new_struct, Any, (Any,Any...), t)
-    elseif isbitstype(t)
-        if nf == 1
-            f1 = deserialize(s)
-            return ccall(:jl_new_struct, Any, (Any,Any...), t, f1)
-        elseif nf == 2
-            f1 = deserialize(s)
-            f2 = deserialize(s)
-            return ccall(:jl_new_struct, Any, (Any,Any...), t, f1, f2)
-        elseif nf == 3
-            f1 = deserialize(s)
-            f2 = deserialize(s)
-            f3 = deserialize(s)
-            return ccall(:jl_new_struct, Any, (Any,Any...), t, f1, f2, f3)
-        else
-            flds = Any[ deserialize(s) for i = 1:nf ]
-            return ccall(:jl_new_structv, Any, (Any,Ptr{Cvoid},UInt32), t, flds, nf)
-        end
-    else
+    if t.mutable
         x = ccall(:jl_new_struct_uninit, Any, (Any,), t)
-        t.mutable && deserialize_cycle(s, x)
+        deserialize_cycle(s, x)
         for i in 1:nf
             tag = Int32(read(s.io, UInt8)::UInt8)
             if tag != UNDEFREF_TAG
@@ -1319,6 +1308,61 @@ function deserialize(s::AbstractSerializer, t::DataType)
         end
         return x
     end
+    if nf == 0
+        x = ccall(:jl_new_struct_uninit, Any, (Any,), t)
+        return x
+    end
+    na = nf
+    #if nf > 4
+        vflds = Vector{Any}(undef, nf)
+        for i in 1:nf
+            tag = Int32(read(s.io, UInt8)::UInt8)
+            if tag != UNDEFREF_TAG
+                f = handle_deserialize(s, tag)
+                na >= i && (vflds[i] = f)
+            else
+                na >= i && (na = i - 1) # rest of tail must be undefined values
+            end
+        end
+        return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), t, vflds, na)
+    #else
+    #    ## optimization for small immutable objects--is this worthwhile?
+    #    sflds = SmallArray()
+    #    tag = Int32(read(s.io, UInt8)::UInt8)
+    #    if tag != UNDEFREF_TAG
+    #        sflds.eins = handle_deserialize(s, tag)
+    #    else
+    #        na = 0
+    #    end
+    #    if nf > 1
+    #        tag = Int32(read(s.io, UInt8)::UInt8)
+    #        if tag != UNDEFREF_TAG
+    #            sflds.zwei = handle_deserialize(s, tag)
+    #        else
+    #            na > 1 && (na = 1)
+    #        end
+    #        if nf > 2
+    #            tag = Int32(read(s.io, UInt8)::UInt8)
+    #            if tag != UNDEFREF_TAG
+    #                sflds.drei = handle_deserialize(s, tag)
+    #            else
+    #                na > 2 && (na = 2)
+    #            end
+    #            if nf > 3
+    #                tag = Int32(read(s.io, UInt8)::UInt8)
+    #                if tag != UNDEFREF_TAG
+    #                    sflds.vier = handle_deserialize(s, tag)
+    #                else
+    #                    na > 3 && (na = 3)
+    #                end
+    #            end
+    #        end
+    #    end
+    #    fldptr = Ptr{Any}(pointer_from_objref(sflds))
+    #    GC.@preserve sflds begin
+    #        return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), t, fldptr, na)
+    #    end
+    #end
 end
 
 function deserialize_dict(s::AbstractSerializer, T::Type{<:AbstractDict})
